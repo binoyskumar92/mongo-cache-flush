@@ -126,6 +126,7 @@ def get_mongos_and_primaries(hosts: List[Dict]) -> tuple:
 
 def flush_cache_on_node(node: Dict) -> bool:
     """Execute cache flush command on a specific node."""
+    client = None
     try:
         # Now using the new user credentials
         client_url = f'mongodb://{NEW_USER}:{NEW_USER_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
@@ -209,7 +210,7 @@ def setup_on_primary(primary_node: Dict) -> bool:
     finally:
         client.close()
 
-def perform_findAll_on_allMongos(mongos_nodes: Dict, namespace: str) -> bool:
+def perform_findAll_on_allMongos(mongos_nodes: List[Dict], namespace: str) -> bool:
     """Run a findOne command on all mongos nodes using admin credentials."""
     # Split namespace into database and collection
     db_name, collection_name = namespace.split('.')
@@ -284,7 +285,9 @@ def main():
         # Flush on mongos
         if mongos_nodes:
             logger.info("Performing find all on mongos to make sure routers have also flushed their cache...")
-            perform_findAll_on_allMongos(mongos_nodes, NAMESPACE)
+            if not perform_findAll_on_allMongos(mongos_nodes, NAMESPACE):
+                logger.error("Failed to perform find all on mongos nodes")
+                return False
         
         logger.info("All operations completed")
         return True
