@@ -237,7 +237,8 @@ def perform_findAll_on_allMongos(mongos_nodes: Dict, namespace: str) -> bool:
             logger.error(f"Error querying collection via mongos {mongos_node['hostname']}: {e}")
             return False
         finally:
-            client.close()
+            if client:
+                client.close()
     
     return True
 
