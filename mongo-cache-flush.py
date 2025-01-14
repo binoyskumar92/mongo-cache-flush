@@ -208,6 +208,38 @@ def setup_on_primary(primary_node: Dict) -> bool:
     finally:
         client.close()
 
+def perform_findAll_on_allMongos(mongos_node: Dict, namespace: str) -> bool:
+    """Run a findOne command on mongos using admin credentials."""
+    try:
+        # Split namespace into database and collection
+        db_name, collection_name = namespace.split('.')
+        
+        # Use admin credentials instead of the new mongops user
+        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{mongos_node["hostname"]}:{mongos_node["port"]}/admin'
+        client = MongoClient(client_url, 
+                           directConnection=True,
+                           connectTimeoutMS=5000, 
+                           serverSelectionTimeoutMS=5000)
+        
+        db = client[db_name]
+        collection = db[collection_name]
+        
+        # Try to find one document
+        doc = collection.find_one()
+        
+        if doc is not None:
+            logger.info(f"Successfully queried one document from {namespace} via mongos {mongos_node['hostname']}")
+            return True
+        else:
+            logger.info(f"Collection {namespace} is empty on mongos {mongos_node['hostname']}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error querying collection via mongos {mongos_node['hostname']}: {e}")
+        return False
+    finally:
+        client.close()
+
 def main():
     try:
         logger.info("Fetching cluster hosts...")
@@ -215,6 +247,14 @@ def main():
         
         mongos_nodes, primary_nodes = get_mongos_and_primaries(all_hosts)
         logger.info(f"Found {len(primary_nodes)} primaries and {len(mongos_nodes)} mongos routers")
+
+        if not primary_nodes:
+            logger.error("No shard primaries found")
+            return False
+
+        if not mongos_nodes:
+            logger.error("No mongos nodes found")
+            return False         
         
         # First, setup user and role on ONE primary only
         setup_completed = False
@@ -236,9 +276,9 @@ def main():
                 logger.error(f"Failed to flush cache on primary {primary['hostname']}")
                 
         # Flush on mongos
-        for mongos in mongos_nodes:
-            if not flush_cache_on_node(mongos):
-                logger.error(f"Failed to flush cache on mongos {mongos['hostname']}")
+        if mongos_nodes:
+            logger.info("Performing find all on mongos to make sure routers have also flushed their cache...")
+            perform_findAll_on_allMongos(mongos_nodes[0], NAMESPACE)
         
         logger.info("All operations completed")
         return True
