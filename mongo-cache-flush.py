@@ -8,7 +8,7 @@ from typing import List, Dict
 PUBLIC_KEY = 'xrnzzfvp'
 PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
 ORG_ID = '6408b431da61be13461e54c3'
-NAMESPACE = 'fortnite-service-prod11.profile_v2'
+NAMESPACE = 'sample.coll'
 
 # MongoDB user config
 MONGO_ADMIN_USER = 'mongoadmin'  # Your admin username
@@ -82,7 +82,9 @@ def get_all_hosts() -> List[Dict]:
     # Get all groups (projects)
     group_url = f'{BASE_URL}/orgs/{ORG_ID}/groups'
     group_response = requests.get(group_url, auth=DIGEST_AUTH)
+    print(group_response)
     groups = group_response.json()['results']
+    
     
     for group in groups:
         group_id = group['id']
@@ -97,7 +99,7 @@ def get_all_hosts() -> List[Dict]:
     return all_hosts
 
 def get_mongos_and_primaries(hosts: List[Dict]) -> tuple:
-    """Separate mongos routers and primary nodes."""
+    """Separate mongos routers and shard primary nodes (excluding config servers)."""
     mongos_nodes = []
     primary_nodes = []
     
@@ -105,17 +107,20 @@ def get_mongos_and_primaries(hosts: List[Dict]) -> tuple:
         hostname = host['hostname']
         port = host['port']
         
+        # Check if it's a mongos
         if 'MONGOS' in host['typeName']:
             mongos_nodes.append({
                 'hostname': hostname,
                 'port': port
             })
-        elif 'PRIMARY' in host['typeName']:
+        # Check if it's a shard primary (exclude config servers)
+        elif 'PRIMARY' in host['typeName'] and 'CONFIG' not in host['typeName']:
             primary_nodes.append({
                 'hostname': hostname,
                 'port': port
             })
     
+    logger.info(f"Found {len(primary_nodes)} shard primaries (excluding config servers) and {len(mongos_nodes)} mongos routers")
     return mongos_nodes, primary_nodes
 
 def flush_cache_on_node(node: Dict) -> bool:
