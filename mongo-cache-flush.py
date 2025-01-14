@@ -1,3 +1,4 @@
+import time
 from requests.auth import HTTPDigestAuth
 import requests
 from pymongo import MongoClient
@@ -258,16 +259,19 @@ def main():
             logger.error("No mongos nodes found")
             return False         
         
-        # First, setup user and role on ONE primary only
-        setup_completed = False
+        # Setup user and role on ALL primaries
+        setup_failures = 0
         for primary in primary_nodes:
-            if setup_on_primary(primary):
-                setup_completed = True
-                break
+            if not setup_on_primary(primary):
+                logger.error(f"Failed to setup on primary {primary['hostname']}")
+                setup_failures += 1
         
-        if not setup_completed:
+        if setup_failures == len(primary_nodes):
             logger.error("Failed to setup user and role on any primary")
             return False
+        
+        # Add delay to allow for user replication
+        time.sleep(5)  # Add import time at top
 
         # Now use mongops user to run flush commands
         logger.info("Setup complete, proceeding with cache flush operations...")
@@ -280,7 +284,7 @@ def main():
         # Flush on mongos
         if mongos_nodes:
             logger.info("Performing find all on mongos to make sure routers have also flushed their cache...")
-            perform_findAll_on_allMongos(mongos_nodes[0], NAMESPACE)
+            perform_findAll_on_allMongos(mongos_nodes, NAMESPACE)
         
         logger.info("All operations completed")
         return True
