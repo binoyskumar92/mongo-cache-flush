@@ -208,37 +208,38 @@ def setup_on_primary(primary_node: Dict) -> bool:
     finally:
         client.close()
 
-def perform_findAll_on_allMongos(mongos_node: Dict, namespace: str) -> bool:
-    """Run a findOne command on mongos using admin credentials."""
-    try:
-        # Split namespace into database and collection
-        db_name, collection_name = namespace.split('.')
-        
-        # Use admin credentials instead of the new mongops user
-        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{mongos_node["hostname"]}:{mongos_node["port"]}/admin'
-        client = MongoClient(client_url, 
-                           directConnection=True,
-                           connectTimeoutMS=5000, 
-                           serverSelectionTimeoutMS=5000)
-        
-        db = client[db_name]
-        collection = db[collection_name]
-        
-        # Try to find one document
-        doc = collection.find_one()
-        
-        if doc is not None:
-            logger.info(f"Successfully queried one document from {namespace} via mongos {mongos_node['hostname']}")
-            return True
-        else:
-            logger.info(f"Collection {namespace} is empty on mongos {mongos_node['hostname']}")
-            return True
+def perform_findAll_on_allMongos(mongos_nodes: Dict, namespace: str) -> bool:
+    """Run a findOne command on all mongos nodes using admin credentials."""
+    # Split namespace into database and collection
+    db_name, collection_name = namespace.split('.')
+    
+    for mongos_node in mongos_nodes:
+        try:
+            # Use admin credentials instead of the new mongops user
+            client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{mongos_node["hostname"]}:{mongos_node["port"]}/admin'
+            client = MongoClient(client_url, 
+                               directConnection=True,
+                               connectTimeoutMS=5000, 
+                               serverSelectionTimeoutMS=5000)
             
-    except Exception as e:
-        logger.error(f"Error querying collection via mongos {mongos_node['hostname']}: {e}")
-        return False
-    finally:
-        client.close()
+            db = client[db_name]
+            collection = db[collection_name]
+            
+            # Try to find one document
+            doc = collection.find_one()
+            
+            if doc is not None:
+                logger.info(f"Successfully queried one document from {namespace} via mongos {mongos_node['hostname']}")
+            else:
+                logger.info(f"Collection {namespace} is empty on mongos {mongos_node['hostname']}")
+                
+        except Exception as e:
+            logger.error(f"Error querying collection via mongos {mongos_node['hostname']}: {e}")
+            return False
+        finally:
+            client.close()
+    
+    return True
 
 def main():
     try:
