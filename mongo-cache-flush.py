@@ -5,6 +5,8 @@ import requests
 from pymongo import MongoClient
 import logging
 from typing import List, Dict
+import json
+import sys
 
 # Configuration
 PUBLIC_KEY = 'xrnzzfvp'
@@ -12,18 +14,18 @@ PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
 ORG_ID = '6408b431da61be13461e54c3'
 NAMESPACE = 'sample.coll'
 
-# # MongoDB user config
-# MONGO_ADMIN_USER = 'mongoadmin'  # Your admin username
-# MONGO_ADMIN_PASSWORD = 'passwordone'  # Your admin password
-# NEW_USER = 'mongops'
-# NEW_USER_PASSWORD = 'mongops123'
+# MongoDB user config
+MONGO_ADMIN_USER = 'mongoadmin'  # Your admin username
+MONGO_ADMIN_PASSWORD = 'passwordone'  # Your admin password
+NEW_USER = 'mongops'
+NEW_USER_PASSWORD = 'mongops123'
 
 # MongoDB user config - get credentials securely
-print("Please enter MongoDB credentials:")
-MONGO_ADMIN_USER = input("Enter MongoDB admin username: ")
-MONGO_ADMIN_PASSWORD = getpass("Enter MongoDB admin password: ")
-NEW_USER = input("Enter new username to create: ")
-NEW_USER_PASSWORD = getpass("Enter password for new user: ")
+# print("Please enter MongoDB credentials:")
+# MONGO_ADMIN_USER = input("Enter MongoDB admin username: ")
+# MONGO_ADMIN_PASSWORD = getpass("Enter MongoDB admin password: ")
+# NEW_USER = input("Enter new username to create: ")
+# NEW_USER_PASSWORD = getpass("Enter password for new user: ")
 
 # API Setup
 BASE_URL = 'https://cloud.mongodb.com/api/public/v1.0'
@@ -107,30 +109,71 @@ def get_all_hosts() -> List[Dict]:
     
     return all_hosts
 
-def get_mongos_and_primaries(hosts: List[Dict]) -> tuple:
-    """Separate mongos routers and shard primary nodes (excluding config servers)."""
+def get_cluster_topology(hosts: List[Dict]) -> tuple:
+    """Extract detailed cluster topology including shard names and their primaries."""
     mongos_nodes = []
-    primary_nodes = []
+    shard_primaries = {}  # Dictionary to store shard name -> primary node mapping
     
     for host in hosts:
         hostname = host['hostname']
         port = host['port']
         
-        # Check if it's a mongos
+        # Handle mongos routers
         if 'MONGOS' in host['typeName']:
             mongos_nodes.append({
                 'hostname': hostname,
                 'port': port
             })
-        # Check if it's a shard primary (exclude config servers)
+        # Handle shard primaries (excluding config servers)
         elif 'PRIMARY' in host['typeName'] and 'CONFIG' not in host['typeName']:
-            primary_nodes.append({
+            # Extract shard name from the hostname or replicaSetName if available
+            shard_name = host.get('replicaSetName', hostname.split('-')[0])
+            shard_primaries[shard_name] = {
                 'hostname': hostname,
                 'port': port
-            })
+            }
     
-    logger.info(f"Found {len(primary_nodes)} shard primaries (excluding config servers) and {len(mongos_nodes)} mongos routers")
-    return mongos_nodes, primary_nodes
+    return mongos_nodes, shard_primaries
+
+def save_topology_info(mongos_nodes: List[Dict], shard_primaries: Dict):
+    """Save cluster topology information to a file."""
+    import os
+    topology = {
+        'mongos_routers': mongos_nodes,
+        'shard_primaries': shard_primaries
+    }
+    
+    # Write the file and set permissions to 640
+    with open('cluster_topology.json', 'w') as f:
+        json.dump(topology, f, indent=2)
+    os.chmod('cluster_topology.json', 0o640)
+    
+    logger.info("Cluster topology has been saved to cluster_topology.json")
+
+def display_topology(mongos_nodes: List[Dict], shard_primaries: Dict):
+    """Display cluster topology in a readable format."""
+    print("\n=== Cluster Topology ===")
+    print("\nMongos Routers:")
+    for idx, mongos in enumerate(mongos_nodes, 1):
+        print(f"{idx}. {mongos['hostname']}:{mongos['port']}")
+    
+    print("\nShard Primaries:")
+    for shard_name, primary in shard_primaries.items():
+        print(f"Shard: {shard_name}")
+        print(f"Primary: {primary['hostname']}:{primary['port']}")
+    
+    print("\nThis topology has been saved to 'cluster_topology.json'")
+
+def wait_for_confirmation():
+    """Wait for user confirmation to proceed."""
+    while True:
+        response = input("\nPress 'C' to continue with setup operations or 'Q' to quit: ").upper()
+        if response == 'C':
+            return True
+        elif response == 'Q':
+            return False
+        else:
+            print("Invalid input. Please press 'C' to continue or 'Q' to quit.")
 
 def flush_cache_on_node(node: Dict) -> bool:
     """Execute cache flush command on a specific node."""
@@ -257,39 +300,53 @@ def main():
         logger.info("Fetching cluster hosts...")
         all_hosts = get_all_hosts()
         
-        mongos_nodes, primary_nodes = get_mongos_and_primaries(all_hosts)
-        logger.info(f"Found {len(primary_nodes)} primaries and {len(mongos_nodes)} mongos routers")
-
-        if not primary_nodes:
+        # Get and display cluster topology
+        mongos_nodes, shard_primaries = get_cluster_topology(all_hosts)
+        
+        if not shard_primaries:
             logger.error("No shard primaries found")
             return False
 
         if not mongos_nodes:
             logger.error("No mongos nodes found")
-            return False         
+            return False
+        
+        # Save and display topology
+        save_topology_info(mongos_nodes, shard_primaries)
+        display_topology(mongos_nodes, shard_primaries)
+        
+        # Wait for user confirmation
+        if not wait_for_confirmation():
+            logger.info("Operation cancelled by user")
+            return False
+        
+        # Continue with setup operations
+        logger.info("Proceeding with setup operations...")
         
         # Setup user and role on ALL primaries
         setup_failures = 0
-        for primary in primary_nodes:
+        for shard_name, primary in shard_primaries.items():
+            logger.info(f"Setting up on shard: {shard_name}")
             if not setup_on_primary(primary):
                 logger.error(f"Failed to setup on primary {primary['hostname']}")
                 setup_failures += 1
         
-        if setup_failures == len(primary_nodes):
+        if setup_failures == len(shard_primaries):
             logger.error("Failed to setup user and role on any primary")
             return False
         
         # Add delay to allow for user replication
         time.sleep(2)
-
+        
         # Now use mongops user to run flush commands
         logger.info("Setup complete, proceeding with cache flush operations...")
         
         # Flush on primaries
-        for primary in primary_nodes:
+        for shard_name, primary in shard_primaries.items():
+            logger.info(f"Flushing cache on shard: {shard_name}")
             if not flush_cache_on_node(primary):
                 logger.error(f"Failed to flush cache on primary {primary['hostname']}")
-                
+        
         # Flush on mongos
         if mongos_nodes:
             logger.info("Performing find all on mongos to make sure routers have also flushed their cache...")
@@ -303,7 +360,6 @@ def main():
     except Exception as err:
         logger.error(f"Script failed: {err}")
         return False
-
 
 if __name__ == "__main__":
     main()
