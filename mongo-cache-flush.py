@@ -1,3 +1,4 @@
+from getpass import getpass
 import time
 from requests.auth import HTTPDigestAuth
 import requests
@@ -11,11 +12,18 @@ PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
 ORG_ID = '6408b431da61be13461e54c3'
 NAMESPACE = 'sample.coll'
 
-# MongoDB user config
-MONGO_ADMIN_USER = 'mongoadmin'  # Your admin username
-MONGO_ADMIN_PASSWORD = 'passwordone'  # Your admin password
-NEW_USER = 'mongops'
-NEW_USER_PASSWORD = 'mongops123'
+# # MongoDB user config
+# MONGO_ADMIN_USER = 'mongoadmin'  # Your admin username
+# MONGO_ADMIN_PASSWORD = 'passwordone'  # Your admin password
+# NEW_USER = 'mongops'
+# NEW_USER_PASSWORD = 'mongops123'
+
+# MongoDB user config - get credentials securely
+print("Please enter MongoDB credentials:")
+MONGO_ADMIN_USER = input("Enter MongoDB admin username: ")
+MONGO_ADMIN_PASSWORD = getpass("Enter MongoDB admin password: ")
+NEW_USER = input("Enter new username to create: ")
+NEW_USER_PASSWORD = getpass("Enter password for new user: ")
 
 # API Setup
 BASE_URL = 'https://cloud.mongodb.com/api/public/v1.0'
@@ -272,7 +280,7 @@ def main():
             return False
         
         # Add delay to allow for user replication
-        time.sleep(5)  # Add import time at top
+        time.sleep(2)
 
         # Now use mongops user to run flush commands
         logger.info("Setup complete, proceeding with cache flush operations...")
