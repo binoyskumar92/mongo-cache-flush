@@ -7,13 +7,10 @@ from getpass import getpass
 import time
 
 # Configuration
-PUBLIC_KEY = 'ocujhzkz'
-PRIVATE_KEY = 'dd8bf812-e189-4799-89d2-7699f956e6d7'
-ORG_ID = '6408b431da61be13461e54c3'
-
-# PUBLIC_KEY = 'xrnzzfvp'
-# PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
-# ORG_ID = '6408b431da61be13461e54c3'
+PUBLIC_KEY = 'kcxodedj'
+PRIVATE_KEY = '10b47519-3976-4a7c-8e82-c08e1a19807e'
+PROJECT_ID = '5f6a47081161501a986c771e'
+CLUSTER_ID = '5f7d0f450e426137fcca64dd'
 
 # MongoDB admin credentials only
 MONGO_ADMIN_USER = 'mongoadmin'
@@ -56,32 +53,31 @@ def test_node_connectivity(node: Dict) -> bool:
             client.close()
 
 def get_all_hosts() -> List[Dict]:
-    """Get all MongoDB hosts across all projects in the organization."""
+    """Get MongoDB hosts from the specified project and cluster with pagination."""
     try:
-        # Test API connectivity first
         logger.info("Testing MongoDB Atlas API connectivity...")
-        group_url = f'{BASE_URL}/orgs/{ORG_ID}/groups'
-        group_response = requests.get(group_url, auth=DIGEST_AUTH)
-        group_response.raise_for_status()
-        logger.info("Successfully connected to MongoDB Atlas API")
-        
-        groups = group_response.json()['results']
         all_hosts = []
+        page_num = 1
+        items_per_page = 200
         
-        for group in groups:
-            group_id = group['id']
-            group_name = group['name']
-            logger.info(f"Fetching hosts for project: {group_name}")
-            
-            host_url = f'{BASE_URL}/groups/{group_id}/hosts'
+        while True:
+            host_url = f'{BASE_URL}/groups/{PROJECT_ID}/hosts?clusterId={CLUSTER_ID}&pageNum={page_num}&itemsPerPage={items_per_page}'
             host_response = requests.get(host_url, auth=DIGEST_AUTH)
             host_response.raise_for_status()
             
-            hosts = host_response.json()['results']
+            response_data = host_response.json()
+            hosts = response_data['results']
             all_hosts.extend(hosts)
             
-            logger.info(f"Found {len(hosts)} hosts in project {group_name}")
-        
+            total_count = response_data.get('totalCount', 0)
+            logger.info(f"Fetched page {page_num}, got {len(hosts)} hosts (Total: {len(all_hosts)}/{total_count})")
+            
+            if len(all_hosts) >= total_count:
+                break
+                
+            page_num += 1
+            
+        logger.info(f"Found total of {len(all_hosts)} hosts in project")
         return all_hosts
 
     except requests.exceptions.RequestException as e:
@@ -114,6 +110,10 @@ def get_cluster_topology(hosts: List[Dict]) -> tuple:
                 shard_name = host.get('replicaSetName', hostname.split('-')[0])
                 shard_primaries[shard_name] = node_info
     
+    logger.info(f"After filtering:")
+    logger.info(f"  Mongos nodes: {len(mongos_nodes)}")
+    logger.info(f"  Shard primaries: {len(shard_primaries)}")
+
     return mongos_nodes, shard_primaries, config_servers
 
 def display_topology(mongos_nodes: List[Dict], shard_primaries: Dict, config_servers: List[Dict]) -> Tuple[int, int]:
@@ -145,7 +145,7 @@ def display_topology(mongos_nodes: List[Dict], shard_primaries: Dict, config_ser
             success_count += 1
         else:
             failure_count += 1
-        time.sleep(0.5)  # Add delay between tests
+        time.sleep(0.2)  # Add delay between tests
         
         # Progress indicator every 10 shards
         if idx % 10 == 0:
