@@ -2,8 +2,9 @@ from requests.auth import HTTPDigestAuth
 import requests
 from pymongo import MongoClient
 import logging
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from getpass import getpass
+import time
 
 # Configuration
 PUBLIC_KEY = 'xrnzzfvp'
@@ -26,29 +27,28 @@ logger = logging.getLogger(__name__)
 
 def test_node_connectivity(node: Dict) -> bool:
     """Test connectivity to a MongoDB node and get server status."""
+    client = None
     try:
         client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
         client = MongoClient(client_url, 
                            directConnection=True,
-                           connectTimeoutMS=5000, 
-                           serverSelectionTimeoutMS=5000)
+                           connectTimeoutMS=10000,           # Increased timeout
+                           serverSelectionTimeoutMS=10000,   # Increased timeout
+                           maxPoolSize=1,                    # Limit connection pool
+                           minPoolSize=0)                    # Don't keep connections
         
-        # Get server status
-        server_status = client.admin.command('serverStatus')
+        # Get basic server status without full details
+        server_status = client.admin.command('serverStatus', {'recordStats': 0, 'metrics': 0})
         
-        # Log relevant information
-        logger.info(f"Successfully connected to {node['hostname']}:{node['port']}")
-        logger.info(f"MongoDB version: {server_status['version']}")
-        logger.info(f"Uptime: {server_status['uptime']} seconds")
-        logger.info(f"Connections: {server_status['connections']}")
-        
+        # Log minimal information
+        logger.info(f"Connected to {node['hostname']}:{node['port']} - version: {server_status['version']}")
         return True
 
     except Exception as e:
-        logger.error(f"Failed to connect to {node['hostname']}:{node['port']}: {e}")
+        logger.error(f"Failed to connect to {node['hostname']}:{node['port']}: {str(e)[:100]}...")  # Truncate long error messages
         return False
     finally:
-        if 'client' in locals():
+        if client:
             client.close()
 
 def get_all_hosts() -> List[Dict]:
@@ -58,7 +58,7 @@ def get_all_hosts() -> List[Dict]:
         logger.info("Testing MongoDB Atlas API connectivity...")
         group_url = f'{BASE_URL}/orgs/{ORG_ID}/groups'
         group_response = requests.get(group_url, auth=DIGEST_AUTH)
-        group_response.raise_for_status()  # Raises an exception for 4XX/5XX status codes
+        group_response.raise_for_status()
         logger.info("Successfully connected to MongoDB Atlas API")
         
         groups = group_response.json()['results']
@@ -112,20 +112,42 @@ def get_cluster_topology(hosts: List[Dict]) -> tuple:
     
     return mongos_nodes, shard_primaries, config_servers
 
-def display_topology(mongos_nodes: List[Dict], shard_primaries: Dict, config_servers: List[Dict]):
-    """Display cluster topology and connection test results."""
-    print("\n=== Cluster Topology and Connectivity Test Results ===")
+def display_topology(mongos_nodes: List[Dict], shard_primaries: Dict, config_servers: List[Dict]) -> Tuple[int, int]:
+    """Display cluster topology and connection test results. Returns (success_count, failure_count)."""
+    success_count = 0
+    failure_count = 0
     
-    print("\nMongos Routers:")
+    print(f"\n=== Testing Cluster with {len(mongos_nodes)} mongos, {len(shard_primaries)} shards ===")
+    
+    # Get user confirmation before proceeding
+    input(f"\nAbout to test {len(mongos_nodes)} mongos and {len(shard_primaries)} shard primaries. Press Enter to continue...")
+    
+    print("\nTesting Mongos Routers...")
     for idx, mongos in enumerate(mongos_nodes, 1):
-        print(f"{idx}. {mongos['hostname']}:{mongos['port']}")
-        test_node_connectivity(mongos)
+        if test_node_connectivity(mongos):
+            success_count += 1
+        else:
+            failure_count += 1
+        time.sleep(0.5)  # Add delay between tests
+        
+        # Progress indicator every 10 nodes
+        if idx % 10 == 0:
+            print(f"Completed testing {idx}/{len(mongos_nodes)} mongos nodes")
     
-    print("\nShard Primaries:")
-    for shard_name, primary in shard_primaries.items():
-        print(f"\nShard: {shard_name}")
-        print(f"Primary: {primary['hostname']}:{primary['port']}")
-        test_node_connectivity(primary)
+    print("\nTesting Shard Primaries...")
+    total_shards = len(shard_primaries)
+    for idx, (shard_name, primary) in enumerate(shard_primaries.items(), 1):
+        if test_node_connectivity(primary):
+            success_count += 1
+        else:
+            failure_count += 1
+        time.sleep(0.5)  # Add delay between tests
+        
+        # Progress indicator every 10 shards
+        if idx % 10 == 0:
+            print(f"Completed testing {idx}/{total_shards} shard primaries")
+    
+    return success_count, failure_count
 
 def main():
     try:
@@ -149,7 +171,15 @@ def main():
             return False
         
         # Display topology and test connections
-        display_topology(mongos_nodes, shard_primaries, config_servers)
+        success_count, failure_count = display_topology(mongos_nodes, shard_primaries, config_servers)
+        
+        # Display final summary
+        total_nodes = len(mongos_nodes) + len(shard_primaries)
+        print("\n=== Test Summary ===")
+        print(f"Total nodes tested: {total_nodes}")
+        print(f"Successful connections: {success_count}")
+        print(f"Failed connections: {failure_count}")
+        print(f"Success rate: {(success_count/total_nodes)*100:.2f}%")
         
         logger.info("Connectivity test completed")
         return True
