@@ -1,3 +1,4 @@
+import os
 from requests.auth import HTTPDigestAuth
 import requests
 from pymongo import MongoClient
@@ -7,10 +8,10 @@ from getpass import getpass
 import time
 
 # Configuration
-PUBLIC_KEY = 'kcxodedj'
-PRIVATE_KEY = '10b47519-3976-4a7c-8e82-c08e1a19807e'
-PROJECT_ID = '5f6a47081161501a986c771e'
-CLUSTER_ID = '5f7d0f450e426137fcca64dd'
+PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
+PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
+PROJECT_ID = os.environ.get('PROJECT_ID')
+CLUSTER_ID = os.environ.get('CLUSTER_ID')
 
 # MongoDB admin credentials only
 MONGO_ADMIN_USER = 'mongoadmin'
