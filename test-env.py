@@ -7,9 +7,13 @@ from getpass import getpass
 import time
 
 # Configuration
-PUBLIC_KEY = 'xrnzzfvp'
-PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
+PUBLIC_KEY = 'ocujhzkz'
+PRIVATE_KEY = 'dd8bf812-e189-4799-89d2-7699f956e6d7'
 ORG_ID = '6408b431da61be13461e54c3'
+
+# PUBLIC_KEY = 'xrnzzfvp'
+# PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
+# ORG_ID = '6408b431da61be13461e54c3'
 
 # MongoDB admin credentials only
 MONGO_ADMIN_USER = 'mongoadmin'
