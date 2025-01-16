@@ -6,19 +6,26 @@ from pymongo import MongoClient
 import logging
 from typing import List, Dict
 import json
-import sys
+import os
 
 # Configuration
+# PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
+# PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
+# PROJECT_ID = os.environ.get('PROJECT_ID')
+# CLUSTER_ID = os.environ.get('CLUSTER_ID')
+
 PUBLIC_KEY = 'xrnzzfvp'
 PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
-ORG_ID = '6408b431da61be13461e54c3'
+PROJECT_ID = '6408b431da61be13461e54c3'
+CLUSTER_ID = ''
 NAMESPACE = 'sample.coll'
 
 # MongoDB user config
-MONGO_ADMIN_USER = 'mongoadmin'  # Your admin username
-MONGO_ADMIN_PASSWORD = 'passwordone'  # Your admin password
+MONGO_ADMIN_USER = 'binoymdb'  # Your admin username
+MONGO_ADMIN_PASSWORD = getpass("Enter admin user password: ")
 NEW_USER = 'mongops'
-NEW_USER_PASSWORD = 'mongops123'
+NEW_USER_PASSWORD = getpass("Enter flush user password: ")
+NAMESPACE='sample.coll'
 
 # MongoDB user config - get credentials securely
 # print("Please enter MongoDB credentials:")
@@ -87,27 +94,36 @@ def setup_user_and_role(node: Dict) -> bool:
         client.close()
 
 def get_all_hosts() -> List[Dict]:
-    """Get all MongoDB hosts across all projects in the organization."""
-    all_hosts = []
-    
-    # Get all groups (projects)
-    group_url = f'{BASE_URL}/orgs/{ORG_ID}/groups'
-    group_response = requests.get(group_url, auth=DIGEST_AUTH)
-    print(group_response)
-    groups = group_response.json()['results']
-    
-    
-    for group in groups:
-        group_id = group['id']
+    """Get MongoDB hosts from the specified project and cluster with pagination."""
+    try:
+        logger.info("Fetching all the hosts...")
+        all_hosts = []
+        page_num = 1
+        items_per_page = 200
         
-        # Get hosts for each group
-        host_url = f'{BASE_URL}/groups/{group_id}/hosts'
-        host_response = requests.get(host_url, auth=DIGEST_AUTH)
-        hosts = host_response.json()['results']
-        
-        all_hosts.extend(hosts)
-    
-    return all_hosts
+        while True:
+            host_url = f'{BASE_URL}/groups/{PROJECT_ID}/hosts?clusterId={CLUSTER_ID}&pageNum={page_num}&itemsPerPage={items_per_page}'
+            host_response = requests.get(host_url, auth=DIGEST_AUTH)
+            host_response.raise_for_status()
+            
+            response_data = host_response.json()
+            hosts = response_data['results']
+            all_hosts.extend(hosts)
+            
+            total_count = response_data.get('totalCount', 0)
+            logger.info(f"Fetched page {page_num}, got {len(hosts)} hosts (Total: {len(all_hosts)}/{total_count})")
+            
+            if len(all_hosts) >= total_count:
+                break
+                
+            page_num += 1
+            
+        logger.info(f"Found total of {len(all_hosts)} hosts in project")
+        return all_hosts
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API connection error: {e}")
+        return []
 
 def get_cluster_topology(hosts: List[Dict]) -> tuple:
     """Extract detailed cluster topology including shard names and their primaries."""
@@ -137,7 +153,6 @@ def get_cluster_topology(hosts: List[Dict]) -> tuple:
 
 def save_topology_info(mongos_nodes: List[Dict], shard_primaries: Dict):
     """Save cluster topology information to a file."""
-    import os
     topology = {
         'mongos_routers': mongos_nodes,
         'shard_primaries': shard_primaries
@@ -295,6 +310,150 @@ def perform_findAll_on_allMongos(mongos_nodes: List[Dict], namespace: str) -> bo
     
     return True
 
+def cleanup_user_and_role(node: Dict) -> bool:
+    """Remove the temporary user and role after successful cache flush."""
+    try:
+        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
+        client = MongoClient(client_url, 
+                           directConnection=True,
+                           connectTimeoutMS=5000, 
+                           serverSelectionTimeoutMS=5000)
+        
+        admin_db = client.admin
+        
+        # Remove role from user first
+        try:
+            admin_db.command('revokeRolesFromUser', NEW_USER,
+                           roles=['flush_routing_table_cache_updates'])
+            logger.info(f"Revoked role from user {NEW_USER} on {node['hostname']}")
+        except Exception as e:
+            logger.warning(f"Error revoking role from user on {node['hostname']}: {e}")
+        
+        # Drop user
+        try:
+            admin_db.command('dropUser', NEW_USER)
+            logger.info(f"Dropped user {NEW_USER} on {node['hostname']}")
+        except Exception as e:
+            logger.error(f"Error dropping user on {node['hostname']}: {e}")
+            return False
+        
+        # Drop role
+        try:
+            admin_db.command('dropRole', 'flush_routing_table_cache_updates')
+            logger.info(f"Dropped role flush_routing_table_cache_updates on {node['hostname']}")
+        except Exception as e:
+            logger.error(f"Error dropping role on {node['hostname']}: {e}")
+            return False
+            
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up on {node['hostname']}: {e}")
+        return False
+    finally:
+        if client:
+            client.close()
+def process_shard(shard_name: str, primary: Dict) -> bool:
+    """Process all operations for a shard using a single admin client connection."""
+    admin_client = None
+    try:
+        # Create single admin client for all operations
+        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{primary["hostname"]}:{primary["port"]}/admin'
+        admin_client = MongoClient(client_url, 
+                                 directConnection=True,
+                                 connectTimeoutMS=5000, 
+                                 serverSelectionTimeoutMS=5000)
+        
+        admin_db = admin_client.admin
+
+        # Verify we're on primary
+        if not admin_client.is_primary:
+            logger.error(f"Node {primary['hostname']} is not primary, skipping")
+            return False
+
+        # 1. Get pre-flush metrics
+        status = admin_db.command('serverStatus')
+        before_metrics = status.get('metrics', {}).get('commands', {}).get('_flushRoutingTableCacheUpdatesWithWriteConcern', {})
+        logger.info(f"Pre-flush metrics on {primary['hostname']}: {before_metrics}")
+
+        # 2. Setup user and role
+        logger.info(f"Setting up user and role on {primary['hostname']}...")
+        try:
+            # Create user
+            admin_db.command('createUser', NEW_USER, 
+                           pwd=NEW_USER_PASSWORD,
+                           roles=[{'role': 'clusterManager', 'db': 'admin'}])
+            logger.info(f"Created user {NEW_USER}")
+        except Exception as e:
+            if 'already exists' not in str(e):
+                raise
+            logger.info(f"User {NEW_USER} already exists")
+
+        try:
+            # Create role
+            admin_db.command('createRole', 'flush_routing_table_cache_updates',
+                           privileges=[{
+                               'resource': {'cluster': True},
+                               'actions': ['internal']
+                           }],
+                           roles=[])
+            logger.info(f"Created role flush_routing_table_cache_updates")
+        except Exception as e:
+            if 'already exists' not in str(e):
+                raise
+            logger.info(f"Role already exists")
+
+        # Grant role
+        admin_db.command('grantRolesToUser', NEW_USER, 
+                        roles=['flush_routing_table_cache_updates'])
+        logger.info(f"Granted role to user {NEW_USER}")
+
+        # 3. Perform flush using new user
+        flush_client = None
+        try:
+            flush_client = MongoClient(f'mongodb://{NEW_USER}:{NEW_USER_PASSWORD}@{primary["hostname"]}:{primary["port"]}/admin',
+                                     directConnection=True,
+                                     connectTimeoutMS=5000,
+                                     serverSelectionTimeoutMS=5000)
+            
+            result = flush_client.admin.command({
+                '_flushRoutingTableCacheUpdatesWithWriteConcern': NAMESPACE,
+                'writeConcern': {'w': 'majority'}
+            })
+        finally:
+            if flush_client:
+                flush_client.close()
+
+        # Small delay to ensure metrics are updated
+        time.sleep(0.5)
+
+        # 4. Verify flush success using metrics
+        status = admin_db.command('serverStatus')
+        after_metrics = status.get('metrics', {}).get('commands', {}).get('_flushRoutingTableCacheUpdatesWithWriteConcern', {})
+        logger.info(f"Post-flush metrics on {primary['hostname']}: {after_metrics}")
+
+        total_increase = int(after_metrics.get('total', 0)) - int(before_metrics.get('total', 0))
+        failed_increase = int(after_metrics.get('failed', 0)) - int(before_metrics.get('failed', 0))
+
+        if result.get('ok') != 1 or total_increase == 0 or failed_increase > 0:
+            logger.error(f"Flush verification failed on {primary['hostname']}")
+            return False
+
+        # 5. Cleanup
+        admin_db.command('revokeRolesFromUser', NEW_USER,
+                        roles=['flush_routing_table_cache_updates'])
+        admin_db.command('dropUser', NEW_USER)
+        admin_db.command('dropRole', 'flush_routing_table_cache_updates')
+        logger.info(f"Cleaned up user and role on {primary['hostname']}")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error processing shard {shard_name} on {primary['hostname']}: {e}")
+        return False
+    finally:
+        if admin_client:
+            admin_client.close()
 def main():
     try:
         logger.info("Fetching cluster hosts...")
@@ -320,42 +479,56 @@ def main():
             logger.info("Operation cancelled by user")
             return False
         
-        # Continue with setup operations
-        logger.info("Proceeding with setup operations...")
-        
-        # Setup user and role on ALL primaries
-        setup_failures = 0
-        for shard_name, primary in shard_primaries.items():
-            logger.info(f"Setting up on shard: {shard_name}")
-            if not setup_on_primary(primary):
-                logger.error(f"Failed to setup on primary {primary['hostname']}")
-                setup_failures += 1
-        
-        if setup_failures == len(shard_primaries):
-            logger.error("Failed to setup user and role on any primary")
-            return False
-        
-        # Add delay to allow for user replication
-        time.sleep(2)
-        
-        # Now use mongops user to run flush commands
-        logger.info("Setup complete, proceeding with cache flush operations...")
-        
-        # Flush on primaries
-        for shard_name, primary in shard_primaries.items():
-            logger.info(f"Flushing cache on shard: {shard_name}")
-            if not flush_cache_on_node(primary):
-                logger.error(f"Failed to flush cache on primary {primary['hostname']}")
-        
-        # Flush on mongos
+        # Setup tracking variables
+        total_operations = len(shard_primaries) + len(mongos_nodes)  # setup+flush counts as 1 per shard + mongos verify
+        successful_operations = 0
+        failed_operations = 0
+
+        # Setup and flush on ALL primaries
+        logger.info("Proceeding with setup and flush operations...")
+        # Process each shard
+        for idx, (shard_name, primary) in enumerate(shard_primaries.items(), 1):
+            logger.info(f"Processing shard: {shard_name} ({idx}/{len(shard_primaries)})")
+            
+            if process_shard(shard_name, primary):
+                successful_operations += 1
+            else:
+                failed_operations += 1
+            
+            time.sleep(0.2)  # Delay between shards
+            
+            # Progress update
+            if idx % 10 == 0:
+                completion_rate = (idx / len(shard_primaries)) * 100
+                logger.info(f"Progress: {completion_rate:.1f}% ({idx}/{len(shard_primaries)} shards)")
+
+
+        # Verify mongos nodes
         if mongos_nodes:
-            logger.info("Performing find all on mongos to make sure routers have also flushed their cache...")
-            if not perform_findAll_on_allMongos(mongos_nodes, NAMESPACE):
-                logger.error("Failed to perform find all on mongos nodes")
-                return False
+            logger.info("Verifying mongos nodes...")
+            for idx, mongos in enumerate(mongos_nodes, 1):
+                if perform_findAll_on_allMongos([mongos], NAMESPACE):  # Process one at a time
+                    successful_operations += 1
+                else:
+                    failed_operations += 1
+                time.sleep(0.2)
+                
+                # Progress update for mongos operations
+                if idx % 10 == 0:
+                    logger.info(f"Completed mongos verification: {idx}/{len(mongos_nodes)}")
+        
+        # Display final summary
+        print("\n=== Operation Summary ===")
+        print(f"Total operations attempted: {total_operations}")
+        print(f"Successful operations: {successful_operations}")
+        print(f"Failed operations: {failed_operations}")
+        print(f"Success rate: {(successful_operations/total_operations)*100:.2f}%")
+        print("\nBreakdown:")
+        print(f"- Shard operations (setup + flush): {successful_operations - len([m for m in mongos_nodes])}/{len(shard_primaries)} successful")
+        print(f"- Mongos verify: {successful_operations - len(shard_primaries)}/{len(mongos_nodes)} successful")
         
         logger.info("All operations completed")
-        return True
+        return successful_operations > 0
         
     except Exception as err:
         logger.error(f"Script failed: {err}")

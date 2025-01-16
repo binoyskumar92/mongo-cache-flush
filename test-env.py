@@ -14,7 +14,7 @@ PROJECT_ID = os.environ.get('PROJECT_ID')
 CLUSTER_ID = os.environ.get('CLUSTER_ID')
 
 # MongoDB admin credentials only
-MONGO_ADMIN_USER = 'mongoadmin'
+MONGO_ADMIN_USER = 'binoymdb'
 MONGO_ADMIN_PASSWORD = getpass("Enter MongoDB admin password: ")
 
 # API Setup
