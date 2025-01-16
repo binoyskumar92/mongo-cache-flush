@@ -9,17 +9,22 @@ import json
 import os
 
 # Configuration
-PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
-PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
-PROJECT_ID = os.environ.get('PROJECT_ID')
-CLUSTER_ID = os.environ.get('CLUSTER_ID')
+# PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
+# PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
+# PROJECT_ID = os.environ.get('PROJECT_ID')
+# CLUSTER_ID = os.environ.get('CLUSTER_ID')
+
+PUBLIC_KEY = 'xrnzzfvp'
+PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
+PROJECT_ID = '6408b4616df06d257af58e44'
+CLUSTER_ID = '6784c00b3e74d03524e4bce9'
 
 # MongoDB user config
 MONGO_ADMIN_USER = 'binoymdb'  # Your admin username
 MONGO_ADMIN_PASSWORD = getpass("Enter admin user password: ")
 NEW_USER = 'mongops'
 NEW_USER_PASSWORD = getpass("Enter flush user password: ")
-NAMESPACE='fortnite-service-prod11.profile_v2'
+NAMESPACE='sample.coll'
 
 # API Setup
 BASE_URL = 'https://cloud.mongodb.com/api/public/v1.0'
@@ -146,8 +151,9 @@ def perform_findAll_on_allMongos(mongos_nodes: List[Dict], namespace: str) -> bo
             collection = db[collection_name]
             
             # Try to find one document
-            doc = collection.find_one()
-            
+            #doc = collection.find_one()
+            doc = next(collection.find().limit(1), None)
+
             if doc is not None:
                 logger.info(f"Successfully queried one document from {namespace} via mongos {mongos_node['hostname']}")
             else:
