@@ -444,8 +444,8 @@ def main():
         print(f"Failed operations: {failed_operations}")
         print(f"Success rate: {(successful_operations/total_operations)*100:.2f}%")
         print("\nBreakdown:")
-        print(f"- Shard operations (setup + flush): {successful_operations - len([m for m in mongos_nodes])}/{len(shard_primaries)} successful")
-        print(f"- Mongos verify: {successful_operations - len(shard_primaries)}/{len(mongos_nodes)} successful")
+        print(f"- Shard operations (setup + flush): {successful_operations}/{len(shard_primaries)} successful")
+        print(f"- Mongos verify: {sum(1 for m in mongos_nodes if perform_findAll_on_allMongos([m], NAMESPACE))}/{len(mongos_nodes)} successful")
         
         logger.info("All operations completed")
         return successful_operations > 0
