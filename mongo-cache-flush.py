@@ -288,7 +288,7 @@ def process_shard(shard_name: str, primary: Dict) -> bool:
                 flush_client.close()
 
         # Small delay to ensure metrics are updated
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         # 4. Verify flush success using metrics
         status = admin_db.command('serverStatus')
