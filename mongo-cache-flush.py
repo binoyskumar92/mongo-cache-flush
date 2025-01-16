@@ -221,6 +221,7 @@ def process_shard(shard_name: str, primary: Dict) -> bool:
     admin_client = None
     try:
         # Create single admin client for all operations
+        logger.info(f"Loggin i: {primary['hostname']}...")
         client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{primary["hostname"]}:{primary["port"]}/admin'
         admin_client = MongoClient(client_url, 
                                  directConnection=True,
