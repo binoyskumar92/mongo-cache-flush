@@ -19,7 +19,7 @@ MONGO_ADMIN_USER = 'binoymdb'  # Your admin username
 MONGO_ADMIN_PASSWORD = getpass("Enter admin user password: ")
 NEW_USER = 'mongops'
 NEW_USER_PASSWORD = getpass("Enter flush user password: ")
-NAMESPACE='sample.coll'
+NAMESPACE='fortnite-service-prod11.profile_v2'
 
 # API Setup
 BASE_URL = 'https://cloud.mongodb.com/api/public/v1.0'
