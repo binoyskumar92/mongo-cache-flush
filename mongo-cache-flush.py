@@ -140,63 +140,6 @@ def wait_for_confirmation():
         else:
             print("Invalid input. Please press 'C' to continue or 'Q' to quit.")
 
-
-    """Setup user and role only on primary nodes using admin credentials."""
-    try:
-        # Connect with admin privileges
-        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{primary_node["hostname"]}:{primary_node["port"]}/admin'
-        client = MongoClient(client_url, 
-                           directConnection=True,
-                           connectTimeoutMS=5000, 
-                           serverSelectionTimeoutMS=5000)
-        
-        admin_db = client.admin
-
-        # Verify we're on primary
-        if not client.is_primary:
-            logger.error(f"Node {primary_node['hostname']} is not primary, skipping setup")
-            return False
-
-        logger.info(f"Connected to primary {primary_node['hostname']}, setting up user and role...")
-        
-        # Create mongops user with clusterManager role
-        try:
-            admin_db.command('createUser', NEW_USER, 
-                           pwd=NEW_USER_PASSWORD,
-                           roles=[{'role': 'clusterManager', 'db': 'admin'}])
-            logger.info(f"Created user {NEW_USER}")
-        except Exception as e:
-            if 'already exists' not in str(e):
-                raise
-            logger.info(f"User {NEW_USER} already exists")
-
-        # Create the special role for flush command
-        try:
-            admin_db.command('createRole', 'flush_routing_table_cache_updates',
-                           privileges=[{
-                               'resource': {'cluster': True},
-                               'actions': ['internal']
-                           }],
-                           roles=[])
-            logger.info("Created flush_routing_table_cache_updates role")
-        except Exception as e:
-            if 'already exists' not in str(e):
-                raise
-            logger.info("Role already exists")
-
-        # Grant the special role to mongops user
-        admin_db.command('grantRolesToUser', NEW_USER, 
-                        roles=['flush_routing_table_cache_updates'])
-        logger.info(f"Granted flush role to user {NEW_USER}")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Error during primary setup on {primary_node['hostname']}: {e}")
-        return False
-    finally:
-        client.close()
-
 def perform_findAll_on_allMongos(mongos_nodes: List[Dict], namespace: str) -> bool:
     """Run a findOne command on all mongos nodes using admin credentials."""
     # Split namespace into database and collection
