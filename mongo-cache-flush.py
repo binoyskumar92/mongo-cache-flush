@@ -400,42 +400,37 @@ def main():
             return False
         
         # Setup tracking variables
-        total_operations = len(shard_primaries) + len(mongos_nodes)  # setup+flush counts as 1 per shard + mongos verify
-        successful_operations = 0
-        failed_operations = 0
+        total_operations = len(shard_primaries) + len(mongos_nodes)
+        shard_successes = 0
+        mongos_successes = 0
 
-        # Setup and flush on ALL primaries
-        logger.info("Proceeding with setup and flush operations...")
         # Process each shard
         for idx, (shard_name, primary) in enumerate(shard_primaries.items(), 1):
             logger.info(f"Processing shard: {shard_name} ({idx}/{len(shard_primaries)})")
             
             if process_shard(shard_name, primary):
-                successful_operations += 1
-            else:
-                failed_operations += 1
+                shard_successes += 1
             
-            time.sleep(0.2)  # Delay between shards
+            time.sleep(0.2)
             
-            # Progress update
             if idx % 10 == 0:
                 completion_rate = (idx / len(shard_primaries)) * 100
                 logger.info(f"Progress: {completion_rate:.1f}% ({idx}/{len(shard_primaries)} shards)")
-
 
         # Verify mongos nodes
         if mongos_nodes:
             logger.info("Verifying mongos nodes...")
             for idx, mongos in enumerate(mongos_nodes, 1):
-                if perform_findAll_on_allMongos([mongos], NAMESPACE):  # Process one at a time
-                    successful_operations += 1
-                else:
-                    failed_operations += 1
+                if perform_findAll_on_allMongos([mongos], NAMESPACE):
+                    mongos_successes += 1
                 time.sleep(0.2)
                 
-                # Progress update for mongos operations
                 if idx % 10 == 0:
                     logger.info(f"Completed mongos verification: {idx}/{len(mongos_nodes)}")
+        
+        # Calculate totals
+        successful_operations = shard_successes + mongos_successes
+        failed_operations = total_operations - successful_operations
         
         # Display final summary
         print("\n=== Operation Summary ===")
@@ -444,8 +439,8 @@ def main():
         print(f"Failed operations: {failed_operations}")
         print(f"Success rate: {(successful_operations/total_operations)*100:.2f}%")
         print("\nBreakdown:")
-        print(f"- Shard operations (setup + flush): {successful_operations}/{len(shard_primaries)} successful")
-        print(f"- Mongos verify: {sum(1 for m in mongos_nodes if perform_findAll_on_allMongos([m], NAMESPACE))}/{len(mongos_nodes)} successful")
+        print(f"- Shard operations (setup + flush): {shard_successes}/{len(shard_primaries)} successful")
+        print(f"- Mongos verify: {mongos_successes}/{len(mongos_nodes)} successful\n")
         
         logger.info("All operations completed")
         return successful_operations > 0
