@@ -16,9 +16,8 @@ import os
 
 PUBLIC_KEY = 'xrnzzfvp'
 PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
-PROJECT_ID = '6408b431da61be13461e54c3'
-CLUSTER_ID = ''
-NAMESPACE = 'sample.coll'
+PROJECT_ID = '6408b4616df06d257af58e44'
+CLUSTER_ID = '6784c00b3e74d03524e4bce9'
 
 # MongoDB user config
 MONGO_ADMIN_USER = 'binoymdb'  # Your admin username
@@ -43,55 +42,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-def setup_user_and_role(node: Dict) -> bool:
-    """Setup user and required role on a primary node."""
-    try:
-        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
-        client = MongoClient(client_url, 
-                           directConnection=True,
-                           connectTimeoutMS=5000, 
-                           serverSelectionTimeoutMS=5000)
-        
-        admin_db = client.admin
-
-        # 1. Create user
-        try:
-            admin_db.command('createUser', NEW_USER, 
-                           pwd=NEW_USER_PASSWORD,
-                           roles=[{'role': 'clusterManager', 'db': 'admin'}])
-            logger.info(f"Created user {NEW_USER} on {node['hostname']}")
-        except Exception as e:
-            if 'already exists' not in str(e):
-                raise
-            logger.info(f"User {NEW_USER} already exists on {node['hostname']}")
-
-        # 2. Create role
-        try:
-            admin_db.command('createRole', 'flush_routing_table_cache_updates',
-                           privileges=[{
-                               'resource': {'cluster': True},
-                               'actions': ['internal']
-                           }],
-                           roles=[])
-            logger.info(f"Created role flush_routing_table_cache_updates on {node['hostname']}")
-        except Exception as e:
-            if 'already exists' not in str(e):
-                raise
-            logger.info(f"Role already exists on {node['hostname']}")
-
-        # 3. Grant role to user
-        admin_db.command('grantRolesToUser', NEW_USER, 
-                        roles=['flush_routing_table_cache_updates'])
-        logger.info(f"Granted role to user {NEW_USER} on {node['hostname']}")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Error setting up user/role on {node['hostname']}: {e}")
-        return False
-    finally:
-        client.close()
 
 def get_all_hosts() -> List[Dict]:
     """Get MongoDB hosts from the specified project and cluster with pagination."""
@@ -190,36 +140,7 @@ def wait_for_confirmation():
         else:
             print("Invalid input. Please press 'C' to continue or 'Q' to quit.")
 
-def flush_cache_on_node(node: Dict) -> bool:
-    """Execute cache flush command on a specific node."""
-    client = None
-    try:
-        # Now using the new user credentials
-        client_url = f'mongodb://{NEW_USER}:{NEW_USER_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
-        client = MongoClient(client_url, 
-                           directConnection=True,
-                           connectTimeoutMS=5000, 
-                           serverSelectionTimeoutMS=5000)
-        
-        result = client.admin.command({
-            '_flushRoutingTableCacheUpdatesWithWriteConcern': NAMESPACE,
-            'writeConcern': {'w': 'majority'}
-        })
-        
-        if result.get('ok') == 1:
-            logger.info(f"Successfully flushed cache on {node['hostname']}")
-            return True
-        else:
-            logger.error(f"Failed to flush cache on {node['hostname']}: {result}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error flushing cache on {node['hostname']}: {e}")
-        return False
-    finally:
-        client.close()
 
-def setup_on_primary(primary_node: Dict) -> bool:
     """Setup user and role only on primary nodes using admin credentials."""
     try:
         # Connect with admin privileges
@@ -310,7 +231,6 @@ def perform_findAll_on_allMongos(mongos_nodes: List[Dict], namespace: str) -> bo
     
     return True
 
-def cleanup_user_and_role(node: Dict) -> bool:
     """Remove the temporary user and role after successful cache flush."""
     try:
         client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
