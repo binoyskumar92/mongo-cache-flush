@@ -9,15 +9,10 @@ import json
 import os
 
 # Configuration
-# PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
-# PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
-# PROJECT_ID = os.environ.get('PROJECT_ID')
-# CLUSTER_ID = os.environ.get('CLUSTER_ID')
-
-PUBLIC_KEY = 'xrnzzfvp'
-PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
-PROJECT_ID = '6408b4616df06d257af58e44'
-CLUSTER_ID = '6784c00b3e74d03524e4bce9'
+PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
+PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
+PROJECT_ID = os.environ.get('PROJECT_ID')
+CLUSTER_ID = os.environ.get('CLUSTER_ID')
 
 # MongoDB user config
 MONGO_ADMIN_USER = 'binoymdb'  # Your admin username
