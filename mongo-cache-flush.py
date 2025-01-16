@@ -9,29 +9,17 @@ import json
 import os
 
 # Configuration
-# PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
-# PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
-# PROJECT_ID = os.environ.get('PROJECT_ID')
-# CLUSTER_ID = os.environ.get('CLUSTER_ID')
-
-PUBLIC_KEY = 'xrnzzfvp'
-PRIVATE_KEY = '3e8b5708-5a84-40b6-a413-11e332783037'
-PROJECT_ID = '6408b4616df06d257af58e44'
-CLUSTER_ID = '6784c00b3e74d03524e4bce9'
+PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
+PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
+PROJECT_ID = os.environ.get('PROJECT_ID')
+CLUSTER_ID = os.environ.get('CLUSTER_ID')
 
 # MongoDB user config
 MONGO_ADMIN_USER = 'binoymdb'  # Your admin username
 MONGO_ADMIN_PASSWORD = getpass("Enter admin user password: ")
 NEW_USER = 'mongops'
 NEW_USER_PASSWORD = getpass("Enter flush user password: ")
-NAMESPACE='sample.coll'
-
-# MongoDB user config - get credentials securely
-# print("Please enter MongoDB credentials:")
-# MONGO_ADMIN_USER = input("Enter MongoDB admin username: ")
-# MONGO_ADMIN_PASSWORD = getpass("Enter MongoDB admin password: ")
-# NEW_USER = input("Enter new username to create: ")
-# NEW_USER_PASSWORD = getpass("Enter password for new user: ")
+NAMESPACE='fortnite-service-prod11.profile_v2'
 
 # API Setup
 BASE_URL = 'https://cloud.mongodb.com/api/public/v1.0'
@@ -174,48 +162,6 @@ def perform_findAll_on_allMongos(mongos_nodes: List[Dict], namespace: str) -> bo
     
     return True
 
-    """Remove the temporary user and role after successful cache flush."""
-    try:
-        client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{node["hostname"]}:{node["port"]}/admin'
-        client = MongoClient(client_url, 
-                           directConnection=True,
-                           connectTimeoutMS=5000, 
-                           serverSelectionTimeoutMS=5000)
-        
-        admin_db = client.admin
-        
-        # Remove role from user first
-        try:
-            admin_db.command('revokeRolesFromUser', NEW_USER,
-                           roles=['flush_routing_table_cache_updates'])
-            logger.info(f"Revoked role from user {NEW_USER} on {node['hostname']}")
-        except Exception as e:
-            logger.warning(f"Error revoking role from user on {node['hostname']}: {e}")
-        
-        # Drop user
-        try:
-            admin_db.command('dropUser', NEW_USER)
-            logger.info(f"Dropped user {NEW_USER} on {node['hostname']}")
-        except Exception as e:
-            logger.error(f"Error dropping user on {node['hostname']}: {e}")
-            return False
-        
-        # Drop role
-        try:
-            admin_db.command('dropRole', 'flush_routing_table_cache_updates')
-            logger.info(f"Dropped role flush_routing_table_cache_updates on {node['hostname']}")
-        except Exception as e:
-            logger.error(f"Error dropping role on {node['hostname']}: {e}")
-            return False
-            
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error cleaning up on {node['hostname']}: {e}")
-        return False
-    finally:
-        if client:
-            client.close()
 def process_shard(shard_name: str, primary: Dict) -> bool:
     """Process all operations for a shard using a single admin client connection."""
     admin_client = None
@@ -237,7 +183,7 @@ def process_shard(shard_name: str, primary: Dict) -> bool:
         # 1. Get pre-flush metrics
         status = admin_db.command('serverStatus')
         before_metrics = status.get('metrics', {}).get('commands', {}).get('_flushRoutingTableCacheUpdatesWithWriteConcern', {})
-        logger.info(f"\nPre-flush metrics on {primary['hostname']}: {before_metrics}")
+        logger.info(f"Pre-flush metrics on {primary['hostname']}: {before_metrics}")
 
         # 2. Setup user and role
         logger.info(f"Setting up user and role on {primary['hostname']}...")
@@ -317,6 +263,7 @@ def process_shard(shard_name: str, primary: Dict) -> bool:
     finally:
         if admin_client:
             admin_client.close()
+
 def main():
     try:
         logger.info("Fetching cluster hosts...")
