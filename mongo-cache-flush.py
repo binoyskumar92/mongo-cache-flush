@@ -221,7 +221,6 @@ def process_shard(shard_name: str, primary: Dict) -> bool:
     admin_client = None
     try:
         # Create single admin client for all operations
-        logger.info(f"Loggin i: {primary['hostname']}...")
         client_url = f'mongodb://{MONGO_ADMIN_USER}:{MONGO_ADMIN_PASSWORD}@{primary["hostname"]}:{primary["port"]}/admin'
         admin_client = MongoClient(client_url, 
                                  directConnection=True,
@@ -238,7 +237,7 @@ def process_shard(shard_name: str, primary: Dict) -> bool:
         # 1. Get pre-flush metrics
         status = admin_db.command('serverStatus')
         before_metrics = status.get('metrics', {}).get('commands', {}).get('_flushRoutingTableCacheUpdatesWithWriteConcern', {})
-        logger.info(f"Pre-flush metrics on {primary['hostname']}: {before_metrics}")
+        logger.info(f"\nPre-flush metrics on {primary['hostname']}: {before_metrics}")
 
         # 2. Setup user and role
         logger.info(f"Setting up user and role on {primary['hostname']}...")
