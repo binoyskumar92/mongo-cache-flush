@@ -68,6 +68,14 @@ This repository contains scripts to automate the process of running incremental 
 2. **Add Public IP to API Key**:
    - Ensure your public IP address is added to the API key settings to allow secure access.
 
+3. **Define these env variables with appropriate values** 
+   ```bash
+   export PUBLIC_KEY=''
+   export PRIVATE_KEY=''
+   export PROJECT_ID=''
+   export CLUSTER_ID=''
+   ```
+
 ## Running the Scripts
 
 - **Main Script**: Run `mongo-cache-flush.py` using a user with `userAdmin` privileges.
