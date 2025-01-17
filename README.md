@@ -1,5 +1,3 @@
-Here's the updated README with the specified title and script details:
-
 ---
 
 # Automating Incremental Refresh on Primary Nodes in a Sharded MongoDB Cluster
